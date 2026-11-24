@@ -1,10 +1,17 @@
-# Testes em todo push e pull request; imagens publicadas a cada push na main (Contrato §14.3).
-name: CI
+# Módulo Financeiro (pasta financeiro/): testes em todo push e pull request que mexa nele;
+# imagens publicadas a cada push na main (Contrato §14.3).
+name: Financeiro
 
 on:
   push:
     branches: [main]
+    paths:
+      - 'financeiro/**'
+      - '.github/workflows/financeiro-ci.yml'
   pull_request:
+    paths:
+      - 'financeiro/**'
+      - '.github/workflows/financeiro-ci.yml'
 
 jobs:
   api:
@@ -19,13 +26,17 @@ jobs:
         ports: ["5432:5432"]
         options: >-
           --health-cmd "pg_isready -U financeiro" --health-interval 5s --health-timeout 5s --health-retries 10
+    defaults:
+      run:
+        working-directory: financeiro
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '21'
           cache: maven
+          cache-dependency-path: financeiro/pom.xml
       - name: Testes (nenhum outro módulo no ar; RabbitMQ e CRM simulados)
         env:
           TEST_DB_URL: jdbc:postgresql://localhost:5432/erp_test
@@ -33,15 +44,17 @@ jobs:
 
   front:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: financeiro/frontend
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: '22'
           cache: npm
-          cache-dependency-path: frontend/package-lock.json
-      - working-directory: frontend
-        run: |
+          cache-dependency-path: financeiro/frontend/package-lock.json
+      - run: |
           npm ci
           npm run typecheck
           npm run build
@@ -52,10 +65,10 @@ jobs:
     permissions:
       contents: read
       packages: write
-    uses: karolAlbuquerque/infra-integrador-2026/.github/workflows/publicar-imagem.yml@main
+    uses: ./.github/workflows/publicar-imagem.yml
     with:
       imagem: financeiro
-      contexto: .
+      contexto: financeiro
 
   publicar-front:
     if: github.event_name == 'push'
@@ -63,7 +76,7 @@ jobs:
     permissions:
       contents: read
       packages: write
-    uses: karolAlbuquerque/infra-integrador-2026/.github/workflows/publicar-imagem.yml@main
+    uses: ./.github/workflows/publicar-imagem.yml
     with:
       imagem: financeiro-front
-      contexto: frontend
+      contexto: financeiro/frontend
