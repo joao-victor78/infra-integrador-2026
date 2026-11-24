@@ -1,0 +1,9 @@
+target/
+frontend/
+keys/
+.env
+.git/
+.github/
+.vscode/
+.claude/
+scripts/

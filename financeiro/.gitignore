@@ -1,0 +1,10 @@
+target/
+node_modules/
+.env
+keys/
+benchmark-resultados.json
+*.png
+!docs/*.png
+.idea/
+.vscode/
+*.iml

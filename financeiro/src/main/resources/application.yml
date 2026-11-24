@@ -1,0 +1,122 @@
+# Toda configuração que muda por ambiente vem de variável (Contrato §13.3, RNF-12).
+# Os nomes são os que o docker-compose do infra-integrador-2026 entrega a todo módulo.
+# Para rodar fora do compose, copie .env.example para .env: ele é lido como fonte de variáveis.
+spring:
+  config:
+    import: optional:file:${ENV_FILE:.env}[.properties]
+  application:
+    name: financeiro
+
+  datasource:
+    # Nome do pool Hikari. NÃO usar hikari.pool-name: o infra passa SPRING_DATASOURCE_HIKARI_CONNECTION_TIMEOUT,
+    # e o binder lê essa variável também como "connection.timeout", chama getConnection() e abre o pool no
+    # meio do bind; o pool-name seguinte é recusado ("pool is sealed"). O Boot aplica datasource.name antes.
+    name: financeiro
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/plataforma}
+    username: ${DB_APP_USER:usr_financeiro}        # aplicação: só dados (Contrato §7.1)
+    password: ${DB_APP_PASSWORD:troque}
+    hikari:
+      maximum-pool-size: 10
+
+  flyway:
+    # URL própria: o Flyway abre a conexão do owner sozinho, sem tocar no pool Hikari da aplicação.
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/plataforma}
+    user: ${DB_OWNER_USER:own_financeiro}          # migrations: dono do schema
+    password: ${DB_OWNER_PASSWORD:troque}
+    schemas: financeiro
+    default-schema: financeiro
+    create-schemas: ${DB_CRIAR_SCHEMA:false}       # no infra o schema já existe
+
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: none
+    properties:
+      hibernate:
+        default_schema: financeiro
+        jdbc:
+          time_zone: UTC
+
+  jackson:
+    time-zone: UTC
+    serialization:
+      write-dates-as-timestamps: false
+    deserialization:
+      # tenantId (ou qualquer campo extra) no corpo é ignorado, nunca usado (checklist item 6)
+      fail-on-unknown-properties: false
+      use-big-decimal-for-floats: true
+
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    virtual-host: ${RABBITMQ_VHOST:plataforma}
+    username: ${RABBITMQ_USER:mq_financeiro}
+    password: ${RABBITMQ_PASSWORD:troque}
+    publisher-confirm-type: simple                 # o outbox só marca PUBLICADO com confirmação do broker
+    connection-timeout: 5s
+    listener:
+      simple:
+        auto-startup: ${RABBITMQ_CONSUMIR:true}
+        default-requeue-rejected: false            # três falhas: vai para a .dlq
+        retry:
+          enabled: true
+          max-attempts: 3
+          initial-interval: 1s
+          multiplier: 2
+
+  mvc:
+    format:
+      date: iso
+
+  web:
+    locale: pt_BR
+    locale-resolver: fixed
+
+server:
+  port: ${SERVER_PORT:8085}
+  max-http-request-header-size: 32KB               # token de ADMINISTRADOR passa de 8 KB (Contrato §4.4)
+  error:
+    whitelabel:
+      enabled: false
+
+financeiro:
+  modulo: financeiro
+  jwt:
+    jwks-uri: ${JWKS_URI:http://localhost:8081/api/identity/.well-known/jwks.json}
+    # Só para desenvolvimento sem o identity no ar: chave pública PEM local (gerada por exec:java@chaves).
+    chave-publica-arquivo: ${JWT_PUBLIC_KEY_PATH:}
+    audiencia: ${JWT_AUDIENCIA:plataforma}
+  jobs:
+    ativos: ${JOBS_ENABLED:true}
+    recorrencia-cron: ${JOB_RECORRENCIA_CRON:0 0 6 * * *}
+    regua-cron: ${JOB_REGUA_CRON:0 0 7 * * *}
+    fuso: America/Sao_Paulo
+  webhook:
+    # Segredo compartilhado com o provedor (HMAC-SHA256 da assinatura). Nunca vai para log (RNF-04).
+    segredo: ${PROVEDOR_WEBHOOK_SEGREDO:troque-este-segredo}
+    limite-por-minuto: ${WEBHOOK_LIMITE_POR_MINUTO:60}
+  provedor:
+    nome: simulado
+    pix-chave: ${PIX_CHAVE_RECEBEDOR:financeiro@empresa.com.br}
+    pix-nome: ${PIX_NOME_RECEBEDOR:EMPRESA}
+    pix-cidade: ${PIX_CIDADE_RECEBEDOR:GOIANIA}
+    validade-horas: 72
+  integracoes:
+    identity-url: ${IDENTITY_BASE_URL:http://localhost:8081}
+    crm-url: ${CRM_BASE_URL:http://localhost:8082}
+    client-id: ${SVC_CLIENT_ID:financeiro}
+    client-secret: ${SVC_CLIENT_SECRET:}
+    timeout-ms: 3000                               # Contrato §9.6
+
+springdoc:
+  api-docs:
+    path: /api/financeiro/docs-json
+  swagger-ui:
+    path: /api/financeiro/docs
+
+logging:
+  structured:
+    format:
+      console: ${LOG_FORMATO:ecs}                  # JSON com o requestId do MDC (RNF-10)
+  level:
+    org.hibernate.engine.jdbc.spi.SqlExceptionHelper: off
